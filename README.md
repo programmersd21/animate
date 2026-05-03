@@ -1,6 +1,6 @@
 # 🎞️ animate
 
-Animation Library for Rust.
+Lightweight Rust animation library with tweening and physics-based springs
 
 ![Demo](./.github/assets/demo.gif)
 
@@ -11,6 +11,7 @@ Animation Library for Rust.
 - **Extensible**: Many built-in types with support for custom interpolators.
 - **Animation modes**: `#[once]`, `#[cycle]`, and `#[alternate]`.
 - **Easing**: Built-in and custom easing functions.
+- **Physics-based**: Supports spring animations.
 - **Ratatui-friendly**: Interpolators for ratatui types, gated behind the `ratatui` feature flag.
 
 ## Installation
@@ -122,8 +123,6 @@ fn main() -> std::io::Result<()> {
 
 ## Fields
 
-All mode attributes accept the same options:
-
 ```rust
 #[once(duration = 300, easing = quad_in_out, interp = my_interp_fn)]
 ```
@@ -139,12 +138,21 @@ All mode attributes accept the same options:
 `linear`, `quad_in`, `quad_out`, `quad_in_out`,
 `cubic_in`, `cubic_out`, `cubic_in_out`
 
-## Custom types
+## Spring animations
 
-Implement `Lerp` for any type:
+In addition to time-based animations, or `Tween`s, animate also supports physics-based spring animations.
 
 ```rust
-impl animate::Lerp for MyColor {
+#[animate]
+pub struct Widget {
+    #[once(ty = "spring", stiffness = 200.0, damping = 20.0, mass = 1.0)]
+    x: f64,
+}
+
+## Custom types
+
+```rust
+impl animate::Tween for MyColor {
     fn lerp(start: &Self, end: &Self, t: f64) -> Self {
         MyColor {
             r: u8::lerp(&start.r, &end.r, t),
