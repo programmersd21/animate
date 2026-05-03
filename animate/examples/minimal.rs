@@ -7,7 +7,7 @@ use std::{
 
 #[animate]
 struct Counter {
-    #[once(duration = 400)]
+    #[tween(duration = 400)]
     value: u32,
 }
 

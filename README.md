@@ -9,7 +9,7 @@ Lightweight Rust animation library with tweening and physics-based springs
 - **Lightweight**: Zero dependencies by default.
 - **Ergonomic**: Macro-driven API with minimal boilerplate.
 - **Extensible**: Many built-in types with support for custom interpolators.
-- **Animation modes**: `#[once]`, `#[cycle]`, and `#[alternate]`.
+- **Animation modes**: `once`, `cycle`, `alternate`.
 - **Easing**: Built-in and custom easing functions.
 - **Physics-based**: Supports spring animations.
 - **Ratatui-friendly**: Interpolators for ratatui types, gated behind the `ratatui` feature flag.
@@ -27,13 +27,13 @@ Add `#[animate]` to a struct and mark the fields you want to animate:
 ```rust
 #[animate]
 pub struct MyWidget {
-    #[once(duration = 300)]
+    #[tween(duration = 300)]
     progress: f64,
 
-    #[cycle(duration = 400, easing = cubic_in)]
+    #[tween(mode = "cycle", duration = 400, easing = cubic_in)]
     color: Color,
 
-    #[alternate(duration = 500, easing = quad_in_out)]
+    #[tween(mode = "alternate", duration = 500, easing = quad_in_out)]
     status: String,
 }
 ```
@@ -83,7 +83,7 @@ use std::{io::{stdout, Write}, thread, time::Duration};
 
 #[animate]
 struct Counter {
-    #[once(duration = 400)]
+    #[tween(duration = 400)]
     value: u32,
 }
 
@@ -115,16 +115,16 @@ fn main() -> std::io::Result<()> {
 
 ## Animation modes
 
-| Attribute      | Behaviour                                           |
+| Mode value      | Behaviour                                           |
 |----------------|-----------------------------------------------------|
-| `#[once]`      | Animates to target once, then holds.                |
-| `#[cycle]`     | Loops continuously from start to target.            |
-| `#[alternate]` | Ping-pongs back and forth between start and target. |
+| `"once"`      | Animates to target once, then holds.                |
+| `"cycle"`     | Loops continuously from start to target.            |
+| `"alternate"` | Ping-pongs back and forth between start and target. |
 
 ## Fields
 
 ```rust
-#[once(duration = 300, easing = quad_in_out, interp = my_interp_fn)]
+#[tween(duration = 300, easing = quad_in_out, interp = my_interp_fn)]
 ```
 
 | Option     | Type       | Default             | Description                                      |
@@ -145,7 +145,7 @@ In addition to time-based animations, or `Tween`s, animate also supports physics
 ```rust
 #[animate]
 pub struct Widget {
-    #[once(ty = "spring", stiffness = 200.0, damping = 20.0, mass = 1.0)]
+    #[spring(stiffness = 200.0, damping = 20.0, mass = 1.0)]
     x: f64,
 }
 
