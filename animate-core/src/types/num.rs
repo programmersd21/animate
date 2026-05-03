@@ -1,73 +1,61 @@
-use crate::Lerp;
+use crate::{SpringAnim, SpringParams, TweenAnim};
 
-impl Lerp for f64 {
-    fn lerp(start: &f64, end: &f64, t: f64) -> f64 {
-        start + (end - start) * t
-    }
+#[inline(always)]
+pub(crate) fn spring_step(
+    pos: f64,
+    target: f64,
+    vel: f64,
+    p: SpringParams,
+    dt: f64,
+) -> (f64, f64) {
+    let k = p.stiffness as f64;
+    let c = p.damping as f64;
+    let m = p.mass as f64;
+
+    let displacement = pos - target;
+    let accel = (-k * displacement - c * vel) / m;
+    let new_vel = vel + accel * dt;
+    let new_pos = pos + new_vel * dt;
+    (new_pos, new_vel)
 }
 
-impl Lerp for f32 {
-    fn lerp(start: &f32, end: &f32, t: f64) -> f32 {
-        (*start as f64 + (*end as f64 - *start as f64) * t) as f32
-    }
+macro_rules! impl_num {
+    ($t:ty) => {
+        impl TweenAnim for $t {
+            #[inline]
+            fn tween(start: &$t, end: &$t, t: f64) -> $t {
+                (*start as f64 + (*end as f64 - *start as f64) * t) as $t
+            }
+        }
+
+        impl SpringAnim for $t {
+            type Velocity = f64;
+
+            #[inline]
+            fn spring(
+                current: &$t,
+                target: &$t,
+                velocity: &f64,
+                params: SpringParams,
+                dt: f64,
+            ) -> ($t, f64) {
+                let (new_pos, new_vel) =
+                    spring_step(*current as f64, *target as f64, *velocity, params, dt);
+                (new_pos.round() as $t, new_vel)
+            }
+        }
+    };
 }
 
-impl Lerp for usize {
-    fn lerp(start: &usize, end: &usize, t: f64) -> usize {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as usize
-    }
-}
-
-impl Lerp for isize {
-    fn lerp(start: &isize, end: &isize, t: f64) -> isize {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as isize
-    }
-}
-
-impl Lerp for u64 {
-    fn lerp(start: &u64, end: &u64, t: f64) -> u64 {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as u64
-    }
-}
-
-impl Lerp for i64 {
-    fn lerp(start: &i64, end: &i64, t: f64) -> i64 {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as i64
-    }
-}
-
-impl Lerp for u32 {
-    fn lerp(start: &u32, end: &u32, t: f64) -> u32 {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as u32
-    }
-}
-
-impl Lerp for i32 {
-    fn lerp(start: &i32, end: &i32, t: f64) -> i32 {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as i32
-    }
-}
-
-impl Lerp for u16 {
-    fn lerp(start: &u16, end: &u16, t: f64) -> u16 {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as u16
-    }
-}
-
-impl Lerp for i16 {
-    fn lerp(start: &i16, end: &i16, t: f64) -> i16 {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as i16
-    }
-}
-
-impl Lerp for u8 {
-    fn lerp(start: &u8, end: &u8, t: f64) -> u8 {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as u8
-    }
-}
-
-impl Lerp for i8 {
-    fn lerp(start: &i8, end: &i8, t: f64) -> i8 {
-        (*start as f64 + (*end as f64 - *start as f64) * t).round() as i8
-    }
-}
+impl_num!(f64);
+impl_num!(f32);
+impl_num!(usize);
+impl_num!(isize);
+impl_num!(u64);
+impl_num!(i64);
+impl_num!(u32);
+impl_num!(i32);
+impl_num!(u16);
+impl_num!(i16);
+impl_num!(u8);
+impl_num!(i8);

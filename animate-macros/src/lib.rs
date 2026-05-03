@@ -3,11 +3,27 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{DeriveInput, LitStr, Type, parse_macro_input};
-
 #[derive(Debug, Default, FromMeta)]
 struct AnimateAttr {
     #[darling(default)]
     update: Option<LitStr>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum AnimType {
+    #[default]
+    Tween,
+    Spring,
+}
+
+impl FromMeta for AnimType {
+    fn from_string(value: &str) -> darling::Result<Self> {
+        match value {
+            "tween" => Ok(AnimType::Tween),
+            "spring" => Ok(AnimType::Spring),
+            other => Err(darling::Error::unknown_value(other)),
+        }
+    }
 }
 
 #[derive(Debug, FromField)]
@@ -21,7 +37,22 @@ struct AnimateField {
     easing: Option<syn::Path>,
     #[darling(default)]
     interp: Option<syn::Path>,
+    #[darling(default, rename = "ty")]
+    anim_ty: Option<AnimType>,
+    #[darling(default)]
+    stiffness: Option<f64>,
+    #[darling(default)]
+    damping: Option<f64>,
+    #[darling(default)]
+    mass: Option<f64>,
 }
+
+impl AnimateField {
+    fn resolved_type(&self) -> AnimType {
+        self.anim_ty.unwrap_or(AnimType::Tween)
+    }
+}
+
 
 #[proc_macro_attribute]
 pub fn animate(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -39,6 +70,7 @@ pub fn animate(attr: TokenStream, item: TokenStream) -> TokenStream {
         .unwrap_or_else(|e| e.to_compile_error())
         .into()
 }
+
 
 fn process(input: DeriveInput, attr: AnimateAttr) -> syn::Result<TokenStream2> {
     let struct_name = &input.ident;
@@ -92,12 +124,33 @@ fn process(input: DeriveInput, attr: AnimateAttr) -> syn::Result<TokenStream2> {
             })
             .collect();
 
-        if let Some(mode) = mode {
-            quote! {
-                #(#attrs)* #field_vis #name: animate::#mode<#ty, fn(f64) -> f64, fn(&#ty, &#ty, f64) -> #ty>
+        match (mode, gf.resolved_type()) {
+            (None, _) => quote! { #(#attrs)* #field_vis #name: #ty },
+
+            (Some(mode), AnimType::Tween) => {
+                let spring_mode = tween_mode_ident(&mode);
+                quote! {
+                    #(#attrs)*
+                    #field_vis #name: animate::Tween<
+                        #ty,
+                        fn(f64) -> f64,
+                        fn(&#ty, &#ty, f64) -> #ty,
+                        animate::#spring_mode
+                    >
+                }
             }
-        } else {
-            quote! { #(#attrs)* #field_vis #name: #ty }
+
+            (Some(mode), AnimType::Spring) => {
+                let spring_mode = spring_mode_ident(&mode);
+                quote! {
+                    #(#attrs)*
+                    #field_vis #name: animate::Spring<
+                        #ty,
+                        fn(&#ty, &#ty, &<#ty as animate::SpringAnim>::Velocity, animate::SpringParams, f64) -> (#ty, <#ty as animate::SpringAnim>::Velocity),
+                        animate::#spring_mode
+                    >
+                }
+            }
         }
     });
 
@@ -112,18 +165,44 @@ fn process(input: DeriveInput, attr: AnimateAttr) -> syn::Result<TokenStream2> {
 
         let mode = field_mode(raw);
 
-        if let Some(mode) = mode {
-            let duration = gf.duration.unwrap_or(0) as f64;
-            let easing = easing_path(gf.easing.as_ref());
-            let interp = interp_path(ty, gf.interp.as_ref());
-            inits.push(quote! {
-                #name: animate::#mode::new(#name, #duration, #easing, #interp)
-            });
-            update_calls.push(quote! {
-                animate::Animate::update(&mut self.#name);
-            });
-        } else {
-            inits.push(quote! { #name });
+        match (mode, gf.resolved_type()) {
+            (None, _) => {
+                inits.push(quote! { #name });
+            }
+
+            (Some(_mode), AnimType::Tween) => {
+                let duration = gf.duration.unwrap_or(0) as f64;
+                let easing = easing_path(gf.easing.as_ref());
+                let interp = tween_interp_path(ty, gf.interp.as_ref());
+                inits.push(quote! {
+                    #name: animate::Tween::new(#name, #duration, #easing, #interp)
+                });
+                update_calls.push(quote! {
+                    animate::Animate::update(&mut self.#name);
+                });
+            }
+
+            (Some(_mode), AnimType::Spring) => {
+                let stiffness = gf.stiffness.unwrap_or(200.0) as f32;
+                let damping = gf.damping.unwrap_or(20.0) as f32;
+                let mass = gf.mass.unwrap_or(1.0) as f32;
+                let interp = spring_interp_path(ty);
+                inits.push(quote! {
+                    #name: animate::Spring::new(
+                        #name,
+                        animate::SpringParams {
+                            stiffness: #stiffness,
+                            damping: #damping,
+                            mass: #mass,
+                            ..animate::SpringParams::default()
+                        },
+                        #interp,
+                    )
+                });
+                update_calls.push(quote! {
+                    animate::Animate::update(&mut self.#name);
+                });
+            }
         }
     }
 
@@ -145,19 +224,40 @@ fn process(input: DeriveInput, attr: AnimateAttr) -> syn::Result<TokenStream2> {
     })
 }
 
+
 fn field_mode(raw: &syn::Field) -> Option<TokenStream2> {
     raw.attrs.iter().find_map(|a| {
         let p = a.path();
         if p.is_ident("once") {
-            Some(quote!(Once))
+            Some(quote!(once))
         } else if p.is_ident("cycle") {
-            Some(quote!(Cycle))
+            Some(quote!(cycle))
         } else if p.is_ident("alternate") {
-            Some(quote!(Alternate))
+            Some(quote!(alternate))
         } else {
             None
         }
     })
+}
+
+fn tween_mode_ident(mode: &TokenStream2) -> TokenStream2 {
+    let s = mode.to_string();
+    match s.as_str() {
+        "once" => quote!(Once),
+        "cycle" => quote!(Cycle),
+        "alternate" => quote!(Alternate),
+        _ => quote!(Once),
+    }
+}
+
+fn spring_mode_ident(mode: &TokenStream2) -> TokenStream2 {
+    let s = mode.to_string();
+    match s.as_str() {
+        "once" => quote!(Once),
+        "cycle" => quote!(Cycle),
+        "alternate" => quote!(Alternate),
+        _ => quote!(Once),
+    }
 }
 
 fn easing_path(path: Option<&syn::Path>) -> TokenStream2 {
@@ -170,14 +270,22 @@ fn easing_path(path: Option<&syn::Path>) -> TokenStream2 {
     }
 }
 
-fn interp_path(ty: &syn::Type, path: Option<&syn::Path>) -> TokenStream2 {
+fn tween_interp_path(ty: &syn::Type, path: Option<&syn::Path>) -> TokenStream2 {
     match path {
         Some(p) if p.leading_colon.is_none() && p.segments.len() == 1 => {
             let module = type_to_module(ty);
             quote! { animate::types::#module::#p as fn(&#ty, &#ty, f64) -> #ty }
         }
         Some(p) => quote! { #p as fn(&#ty, &#ty, f64) -> #ty },
-        None => quote! { <#ty as animate::Lerp>::lerp as fn(&#ty, &#ty, f64) -> #ty },
+        None => quote! { <#ty as animate::TweenAnim>::tween as fn(&#ty, &#ty, f64) -> #ty },
+    }
+}
+
+fn spring_interp_path(ty: &syn::Type) -> TokenStream2 {
+    quote! {
+        <#ty as animate::SpringAnim>::spring
+            as fn(&#ty, &#ty, &<#ty as animate::SpringAnim>::Velocity, animate::SpringParams, f64)
+                -> (#ty, <#ty as animate::SpringAnim>::Velocity)
     }
 }
 

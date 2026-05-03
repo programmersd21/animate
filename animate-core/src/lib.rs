@@ -1,14 +1,15 @@
-pub mod easing;
-mod macros;
-pub mod mode;
+pub mod spring;
+pub mod tween;
 pub mod types;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-pub use easing::*;
-pub use mode::*;
+pub use spring::*;
+pub use tween::easing;
+pub use tween::*;
 
 pub static FRAME_TIME: AtomicUsize = AtomicUsize::new(0);
+pub static LAST_DELTA: AtomicUsize = AtomicUsize::new(0);
 pub static IS_ANIMATING: AtomicBool = AtomicBool::new(false);
 
 pub trait Animate {
@@ -19,56 +20,35 @@ pub trait Animate {
     fn target(&self) -> &Self::Value;
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct StateInner<T> {
-    pub current: T,
-    pub start: T,
-    pub target: T,
-    pub started_at: Option<usize>,
-    pub pending: bool,
-}
+pub trait Mode {}
 
-#[derive(Debug)]
-pub(crate) struct AnimateState<T, E, I>
-where
-    E: Fn(f64) -> f64,
-    I: Fn(&T, &T, f64) -> T,
-{
-    pub inner: StateInner<T>,
-    pub duration: f64,
-    pub easing: E,
-    pub interp: I,
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Once;
+impl Mode for Once {}
 
-impl<T: Default, E, I> AnimateState<T, E, I>
-where
-    E: Fn(f64) -> f64,
-    I: Fn(&T, &T, f64) -> T,
-{
-    pub fn new(initial: T, duration: f64, easing: E, interp: I) -> Self {
-        Self {
-            inner: StateInner {
-                current: initial,
-                start: Default::default(),
-                target: Default::default(),
-                started_at: None,
-                pending: false,
-            },
-            duration: duration.max(f64::MIN_POSITIVE),
-            easing,
-            interp,
-        }
-    }
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Cycle;
+impl Mode for Cycle {}
 
-pub trait Lerp {
-    fn lerp(start: &Self, end: &Self, t: f64) -> Self;
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Alternate;
+impl Mode for Alternate {}
 
 #[inline(always)]
 pub fn tick(delta: usize) {
     FRAME_TIME.fetch_add(delta, Ordering::Relaxed);
+    LAST_DELTA.store(delta, Ordering::Relaxed);
     IS_ANIMATING.store(false, Ordering::Relaxed);
+}
+
+pub fn frame() -> usize {
+    FRAME_TIME.load(Ordering::Relaxed)
+}
+
+#[inline]
+pub fn delta() -> f64 {
+    let delta_ms = crate::LAST_DELTA.load(Ordering::Relaxed);
+    (delta_ms as f64 / 1000.0).max(f64::MIN_POSITIVE)
 }
 
 pub fn is_animating() -> bool {
